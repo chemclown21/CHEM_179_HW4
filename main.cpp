@@ -233,7 +233,7 @@ tuple<vec,vec,vec,vec,vec> FindConsts(vector<vec> basis_data, int atom, vec R_ce
 }
 
 // Read in input file
-tuple<int,vector<int>,int,int,vector<vector<double>>,vector<int>,vector<vector<double>>,vector<int>,vector<int>> read_input_file(string file_name){
+tuple<int,vec,int,int,vector<vector<double>>,vector<int>,vector<vector<double>>,vector<int>,vector<int>> read_input_file(string file_name){
     // Read in the coordinates, in the format: E X Y Z for each atom, where E is the element (handle at least H and C).
 
     // Read in input file
@@ -251,7 +251,7 @@ tuple<int,vector<int>,int,int,vector<vector<double>>,vector<int>,vector<vector<d
     vector<vector<double>> basis_xyz_list; // Initialize list for atoms' xyz coordinates
     vector<int> basis_atom_list;           // Initialize list for atoms' identities
     vector<int> basis_atom_nums;
-    vector<int> Z;
+    vec Z = vec(n_atoms,fill::zeros);
     // Read in atom identity and xyz coordinates
     for (int i = 0; i < n_atoms; ++i) {  // Iterate through every atom
         int atom;
@@ -277,22 +277,22 @@ tuple<int,vector<int>,int,int,vector<vector<double>>,vector<int>,vector<vector<d
         atom_list.push_back(atom);         // Append this atom's atomic number/atom identity to list
         xyz_list.push_back({x, y, z});     // Append this atom's xyz coordinates to list
 
-        // ZA
+        // ZA, valence atomic number of
         if (atom == 1){
-            Z.push_back(1);
+            Z(i)=1;
         } else if (atom == 6){
-            Z.push_back(4);
+            Z(i)=4;
         } else if (atom == 7){
-            Z.push_back(5);
+            Z(i)=5;
         } else if (atom == 8){
-            Z.push_back(6);
+            Z(i)=6;
         } else if (atom == 9){
-            Z.push_back(7);
+            Z(i)=7;
         }
     }
     inputFile.close();                     // Close the txt file
 
-    tuple<int,vector<int>,int,int,vector<vector<double>>,vector<int>,vector<vector<double>>,vector<int>,vector<int>> output = make_tuple(n_atoms,Z,a,b,xyz_list,atom_list,basis_xyz_list,basis_atom_list,basis_atom_nums);
+    tuple<int,vec,int,int,vector<vector<double>>,vector<int>,vector<vector<double>>,vector<int>,vector<int>> output = make_tuple(n_atoms,Z,a,b,xyz_list,atom_list,basis_xyz_list,basis_atom_list,basis_atom_nums);
     return output;
 }
 
@@ -304,7 +304,6 @@ tuple<vector<tuple<vec,vec,vec,vec,vec>>,vector<string>> build_basis(vector<vec>
     vector<tuple<vec,vec,vec,vec,vec>> basis_func_constants;
     vector<string> basis_orbital_list;
 
-
     for (int i = 0; i < N; i++){
 
         int atom = basis_atom_list[i]; // select atom
@@ -313,19 +312,22 @@ tuple<vector<tuple<vec,vec,vec,vec,vec>>,vector<string>> build_basis(vector<vec>
         string orbital;
         if (atom == 1){
             orbital = "1s"; // If it's H, only 1s orbital
-        } else if (atom == 6){ // If it's C, for each C, there's 2s, 2px, 2py, and 2pz
+        } else if (atom == 6 || atom == 7 || atom == 8 || atom == 9){ // If it's C, for each C, there's 2s, 2px, 2py, and 2pz
             orbital = row2_orbital_bank[0];
             row2_orbital_bank.erase(row2_orbital_bank.begin());
         }
         if (row2_orbital_bank.size() == 0){
             row2_orbital_bank = {"2s","2px","2py","2pz"};
         }
+
         basis_orbital_list.push_back(orbital); // Collect basis functions' orbitals + find their characteristic consts
         basis_func_constants.push_back(FindConsts(basis_data,atom, center, orbital));
+
     }
     return make_tuple(basis_func_constants,basis_orbital_list);
 }
 
+// S, AO basis overlap integral matrix
 mat build_s(int N, vector<tuple<vec,vec,vec,vec,vec>> basis_func_constants){
     // Find all normalization constants for the basis functions
     mat All_Normalization_Constants(3,N,fill::zeros);
@@ -448,10 +450,7 @@ tuple<double,double,double,double,double,double,double,double>gamma_atom_constan
     double d_kp_sA = d_A(kp);
     double d_l_sB  = d_B(l);
     double d_lp_sB = d_B(lp);
-    cout << "k=" << k << ",d_k=" << d_k_sA << endl;
-    cout << "kp=" << kp << ",d_kp=" << d_kp_sA << endl;
-    cout << "l=" << l << ",d_l=" << d_l_sB << endl;
-    cout << "lp=" << lp << ",d_lp=" << d_lp_sB << endl;
+
     // Extract exponents
     double alpha_k  = alpha_A(k);
     double alpha_kp = alpha_A(kp);
@@ -473,6 +472,8 @@ tuple<double,double,double,double,double,double,double,double>gamma_atom_constan
     return make_tuple(alpha_k,alpha_kp,alpha_l,alpha_lp,dp_k_sA,dp_kp_sA,dp_l_sB,dp_lp_sB);
 }
 
+// Build Gamma = all two-center 2-electron repulsion integrals evaluated over the square of the valence s
+// orbital centered on atoms A and B
 mat build_g(int n_atoms, vector<vector<double>> xyz_list,vector<vec> basis_data,vector<int> atom_list){
     // Contracted overlap integral S
 
@@ -480,6 +481,7 @@ mat build_g(int n_atoms, vector<vector<double>> xyz_list,vector<vec> basis_data,
 
     for (int A = 0; A < n_atoms; A++){
         for (int B = 0; B < n_atoms; B++){
+
             //Define RA and RB
             vector<double> RA_raw = xyz_list[A];
             vector<double> RB_raw = xyz_list[B];
@@ -488,6 +490,7 @@ mat build_g(int n_atoms, vector<vector<double>> xyz_list,vector<vec> basis_data,
 
             double g = 0;
 
+            // sum over two-electron integrals over primitive Gaussians
             for             (int k = 0; k < 3; k++){
                 for         (int kp = 0; kp < 3; kp++){
                     for     (int l = 0; l < 3; l++){
@@ -496,44 +499,223 @@ mat build_g(int n_atoms, vector<vector<double>> xyz_list,vector<vec> basis_data,
 
                             auto[alpha_k,alpha_kp,alpha_l,alpha_lp,dp_k_sA,dp_kp_sA,dp_l_sB,dp_lp_sB]= gamma_atom_constants(basis_data,atom_list,RA,RB,A,B,k,kp,l,lp);
 
-                            double sigma_A = pow(alpha_k+alpha_kp,-1);
-                            double sigma_B = pow(alpha_l+alpha_lp,-1);
+                            // Compute 0^0 integral
+                            // 6-dimensional 2-center integral over the product of 4 primitive s-type Gaussian functions
+                            double sigma_A = 1/(alpha_k+alpha_kp);
+                            double sigma_B = 1/(alpha_l+alpha_lp);
 
-                            double UA = ((M_PI*sigma_A),3/2);
-                            double UB = ((M_PI*sigma_B),3/2);
+                            double UA = pow((M_PI*sigma_A),1.5);
+                            double UB = pow((M_PI*sigma_B),1.5);
 
-                            double V2 = pow(sigma_A+sigma_B,-1);
+                            double V2 = 1/(sigma_A+sigma_B);
 
-                            double T = V2*dot(RA-RB,RA-RB);
-                            double oo;
-                            if (A==B){
-                                oo = UA*UB*sqrt(2*V2)*sqrt(2/M_PI);
+                            double diff2 = pow(norm(RA-RB),2);
+                            double T = V2*diff2;
+
+                            double oo = 0;
+                            if (T==0){
+                                oo = UA*UB*sqrt(2*V2)*sqrt(2.0/M_PI);
                             } else {
-                                oo = UA*UB*sqrt(1/(dot(RA-RB,RA-RB)))*erf(sqrt(T));
+                                oo = UA*UB*sqrt(1.0/diff2)*erf(sqrt(T));
                             }
+
                             summand = dp_k_sA*dp_kp_sA*dp_l_sB*dp_lp_sB*oo;
                             g += summand;
                         }
                     }
                 }
             }
-            gamma(A,B) = g;
+            gamma(A,B) = 27.2114079527*g; //convert to eV from atomic units
         }
     }
     return gamma;
 }
 
+// Build core hamiltonian matrix
+mat build_h(int N, int n_atoms, vector<int> basis_atom_nums, vector<int> basis_atom_list, vector<string> basis_orbital_list, vec Z, mat IAb, mat gamma, mat s){
+    mat H(N,N,fill::zeros);
+    // inputs basis_atom_nums, basis_orbital_list, IAb, n_atoms, p_tot, Z, gamma, p, s
+    // Iterate over pairs of basis functions
+
+    for (int mu = 0; mu < N; mu++) {
+        for (int nu = 0; nu < N; nu++) {
+            double h;
+            if (mu == nu){
+                // calculate summation
+                int A = basis_atom_nums[mu];
+
+                double IA;
+                string orbital = basis_orbital_list[mu];
+                if (orbital == "1s" || orbital == "2s"){
+                    IA = IAb(0,basis_atom_list[mu]-1);
+                } else if (orbital == "2px" || orbital == "2py" || orbital == "2pz"){
+                    IA = IAb(1,basis_atom_list[mu]-1);
+                }
+
+                double summation = 0;
+                for (int B = 0; B < n_atoms; B++){
+                    if (B != A){
+                        summation += Z(B)*gamma(A,B);
+                    }
+                }
+                h = -IA-(Z(A)-0.5)*gamma(A,A)-summation;
+            } else {
+                int A = basis_atom_nums[mu];
+                int B = basis_atom_nums[nu];
+
+                double nbetaA = IAb(2,basis_atom_list[mu]-1);
+                double nbetaB = IAb(2,basis_atom_list[nu]-1);
+
+                h = -0.5*(nbetaA+nbetaB)*s(mu,nu);
+            }
+            H(mu,nu) = h;
+        }
+    }
+    return H;
+}
+
+// Build density matrix for p alpha electrons or q beta electrons
+mat build_p(mat C_a, int p) {
+
+    int n_rows = C_a.n_rows; // since the size of a matrix is the total # of elements, and c_alpha is always square
+
+    // Initialize appropriately sized matrix
+    mat C_occupied(n_rows, p, arma::fill::zeros);
+
+    // slice the c_alpha square matrix into a rectangular matrix, just selecting the first p columns
+    for (int i = 0; i < n_rows; i++) {
+        for (int j = 0; j < p; j++) {
+            C_occupied(i,j) = C_a(i,j);
+        }
+    }
+    // occupied coefficient matrix times transpose
+    mat P_mat = C_occupied*C_occupied.t();
+    return P_mat;
+}
+
+// Total density on each atom
+vec build_pAA(int N, int n_atoms, vector<int> basis_atom_nums, mat p_alpha, mat p_beta){
+    mat p_tot = p_alpha + p_beta;
+    vec pAA(n_atoms,fill::zeros);
+    for     (int A = 0; A < n_atoms; A++){
+        double pAA_A = 0;
+        for (int mu = 0; mu < N; mu++) {
+            if (basis_atom_nums[mu]==A){
+                pAA_A += p_tot(mu,mu);
+            }
+        }
+        pAA(A) = pAA_A;
+    }
+    return pAA;
+}
+
+// Assemble the matrix elements of the CNDO/2 Fock operator, f (in the AO basis)
+mat build_f(int N, int n_atoms, vector<int> basis_atom_nums, vector<int> basis_atom_list, vector<string> basis_orbital_list, vec Z, mat IAb, mat gamma, mat s, mat p, vec p_tot){
+
+    mat F(N,N,fill::zeros);
+    // inputs basis_atom_nums, basis_orbital_list, IAb, n_atoms, p_tot, Z, gamma, p, s
+    // Iterate over pairs of basis functions
+    for (int mu = 0; mu < N; mu++) {
+        for (int nu = 0; nu < N; nu++) {
+            double f;
+
+            if (mu == nu){
+                // Diagonal Fock matrix elements
+                // Do unrestricted equations
+
+                // calculate summation
+                int A = basis_atom_nums[mu];
+
+                // Semi-empirical parameters of ionization energies and electron affinities
+                double IA;
+                string orbital = basis_orbital_list[mu];
+                if (orbital == "1s" || orbital == "2s"){
+                    IA = IAb(0,basis_atom_list[mu]-1);
+                } else if (orbital == "2px" || orbital == "2py" || orbital == "2pz"){
+                    IA = IAb(1,basis_atom_list[mu]-1);
+                }
+
+                double summation = 0;
+                for (int B = 0; B < n_atoms; B++){
+                    if (B != A){
+                        summation += (p_tot(B)-Z(B)) *gamma(A,B);
+                    }
+                }
+                f = -IA+((p_tot(A)-Z(A))-(p(mu,mu)-0.5))*gamma(A,A)+summation;
+            } else {
+                // Off-diagonal Fock matrix elements
+                // Do unrestricted equations
+
+                int A = basis_atom_nums[mu];
+                int B = basis_atom_nums[nu];
+
+                double nbetaA = IAb(2,basis_atom_list[mu]-1);
+                double nbetaB = IAb(2,basis_atom_list[nu]-1);
+                f = -0.5*(nbetaA + nbetaB) * s(mu,nu) - p(mu,nu) * gamma(A,B);
+            }
+            F(mu,nu) = f;
+        }
+    }
+    return F;
+}
+
+// Fock Matrix to MO Coefficients
+mat F_to_C(mat F) {
+    // Find MO Coeffs
+    vec energies;
+    mat C;
+    eig_sym(energies, C, F);
+
+    return C;
+}
+
+// Fock Matrix to Energy eigen values
+mat F_to_ep(mat F) {
+    vec energies;
+    mat C;
+    eig_sym(energies, C, F); // can use eig_sym because F is guaranteed to be symmetric
+    return energies;
+}
+
+// Electron energy
+double E_electron(int N, mat H, mat P_a, mat P_b, mat F_a, mat F_b){
+    double E = 0;
+    for (int mu = 0; mu < N; mu++){
+        for (int nu = 0; nu < N; nu++){
+            E += P_a(mu,nu)*(H(mu,nu)+F_a(mu,nu))+P_b(mu,nu)*(H(mu,nu)+F_b(mu,nu));
+        }
+    }
+    return E/2; //avoid double counting
+}
+
+// Nuclear Repulsion Energy
+double E_nuc_rep(int n_atoms,vec Z, vector<vector<double>> xyz_list){
+    double E = 0;
+    for (int A = 0; A < n_atoms; A++){
+        for (int B = 0; B < n_atoms; B++){
+            if (B > A){ // Don't count the same atom
+                vector<double> RA_raw = xyz_list[A];
+                vector<double> RB_raw = xyz_list[B];
+                double xA = RA_raw[0], yA = RA_raw[1], zA = RA_raw[2];
+                double xB = RB_raw[0], yB = RB_raw[1], zB = RB_raw[2];
+
+                double R_AB = sqrt(pow(xA-xB,2) + pow(yA-yB,2) + pow(zA-zB,2));
+
+                E += Z(A)*Z(B)/R_AB;
+            }
+        }
+    }
+    return E*27.2114079527; //convert to eV and avoid double counting
+}
 
 int main(int argc, char* argv[]) {
-
     // Program inputs
-    //if (argc !=2)
-    //{
-    //    printf("Usage: hw3 <filename>, for example hw3 example.txt\n");
-    //    return EXIT_FAILURE;
-    //}
-    //string file_name = argv[1];
-    string file_name = "/Users/vittor/Documents/CLASSES/SPRING 2024/CHEM_179_HW4/sample_input/H2.txt";
+    if (argc !=2){
+        printf("Usage: hw3 <filename>, for example hw3 example.txt\n");
+        return EXIT_FAILURE;
+    }
+    string file_name = argv[1];
+    //string file_name = "/Users/vittor/Documents/CLASSES/SPRING 2024/CHEM_179_HW4/sample_input/HO.txt";
 
     string H_path_name = "/Users/vittor/Documents/CLASSES/SPRING 2024/CHEM_179_HW4/basis/H_STO3G.txt";
     string C_path_name = "/Users/vittor/Documents/CLASSES/SPRING 2024/CHEM_179_HW4/basis/C_STO3G.txt";
@@ -550,26 +732,101 @@ int main(int argc, char* argv[]) {
     // enable you to define them.
     int N = 4*a+b;
 
-    // Evaluate the number of electrons 2n = 4a + b. Throw an error if the number of electron
-    // pairs n = 2a +b/2 is not an integer. Knowing n is necessary to evaluate the energy later.
-    int n;
-    if (!is_integer(2*a+b/2)){
-        cerr << "The number of electron pairs n = 2a +b/2 is not an integer!" << endl;
-    } else {
-        n = 2*a + b/2;
-    }
     // Build Basis Functions
     vector<vec> basis_data = ProcessBasisData(H_path_name,C_path_name, N_path_name, O_path_name, F_path_name);
     auto[basis_func_constants,basis_orbital_list] = build_basis(basis_data,N,basis_atom_list,basis_xyz_list);
 
-
-    mat IAb = mat("7.176 14.051 19.316 25.390 32.272; NaN 5.572 7.275 9.111 11.080; 9 21 25 31 39");
+    // Semi-empirical parameters of ionization energies and electron affinities
+    mat IAb = mat("7.176 0 0 0 0 14.051 19.316 25.390 32.272;  0 0 0 0 0 5.572 7.275 9.111 11.080; 9  0 0 0 0 21 25 31 39");
 
     mat gamma = build_g(n_atoms,xyz_list,basis_data,atom_list);
-    gamma.print("gamma");
+    gamma.print("Gamma Matrix");
 
-    // Build Contracted Overlap Integral Matrix
+    // Build S, AO basis Contracted overlap integral matrix
     mat S = build_s(N,basis_func_constants);
     S.print("Overlap, S: Contracted overlap integral, overlap matrix:");
 
+    int p = ceil(sum(Z)/2),  q = floor(sum(Z)/2);
+    cout << "p = " << p << " q = " << q << endl;
+
+    mat H = build_h(N,n_atoms,basis_atom_nums,basis_atom_list,basis_orbital_list,Z,IAb,gamma,S);
+    H.print("H_core");
+
+
+    int iterator = 0;
+    bool convergence = false;
+    double tol = 1e-8;
+    mat P_a, P_b, P_a_old, P_b_old;
+    mat C_a, C_b, C    ;
+    mat F_a, F_b       ;
+    vec p_tot;
+
+
+    while (!convergence){
+        cout << "Iteration: " << iterator << endl;
+
+        // Given the AO basis total density matrix, p, where,
+        // for an open shell molecule with p α electrons and q β electrons,
+        if (iterator == 0){
+            // Base Case
+            // 1. Guess pα = pβ = 0
+            P_a = mat(N,N,fill::zeros);
+            P_b = mat(N,N,fill::zeros);
+            p_tot = build_pAA(N,n_atoms,basis_atom_nums,P_a,P_b); // Total densities on each atom
+        }
+
+        // Assemble the matrix elements of the CNDO/2 Fock operator, f (in the AO basis)
+        // 2. Build fα and fβ.
+        F_a = build_f(N,n_atoms,basis_atom_nums,basis_atom_list,basis_orbital_list,Z,IAb,gamma,S,P_a,p_tot);
+        F_b = build_f(N,n_atoms,basis_atom_nums,basis_atom_list,basis_orbital_list,Z,IAb,gamma,S,P_b,p_tot);
+
+        F_a.print("Fa");
+        F_b.print("Fb");
+
+        // 3. Solve the eigenvalue problems, Eqs. 2.3 and 2.4, to obtain new MO coefficients, cα and cβ
+        C_a = F_to_C(F_a);
+        C_b = F_to_C(F_b);
+
+        cout << "after solving eigenvalue equation:" << iterator << endl;
+
+        C_a.print("Ca");
+        C_b.print("Cb");
+
+        // 4. Copy the old density matrices to pα old and pβ old
+        P_a_old = P_a;
+        P_b_old = P_b;
+
+        // 5. Assemble new density matrices by occupying the p lowest energy α MOs and the q
+        // lowest energy β MOs and using Eqs. 1.1, 1.2 and 1.3
+        cout << "p = " << p << " q = " << q << endl;
+        P_a = build_p(C_a,p);
+        P_b = build_p(C_b,q);
+
+        P_a.print("Pa_new");
+        P_b.print("Pb_new");
+        p_tot = build_pAA(N,n_atoms,basis_atom_nums,P_a,P_b); // Total densities on each atom
+        p_tot.print("P_t");
+
+        iterator += 1;
+        // 6. If the maximum magnitude of the change in the α and β density matrices is less than
+        // a tolerance you specify (e.g. 10−6), then you have converged. Otherwise return to step 2.
+        convergence = approx_equal(P_a, P_a_old, "absdiff", tol);
+    }
+
+    cout << "\nFinal Converged Molecule:" << endl;
+    // 3. corresponding eigenvalues, εα and εβ
+    vec E_a = F_to_ep(F_a);
+    vec E_b = F_to_ep(F_a);
+
+    E_a.print("Ea");
+    E_b.print("Eb");
+    C_a.print("Ca");
+    C_b.print("Cb");
+
+    double E_el = E_electron(N,H,P_a,P_b,F_a,F_b);
+    double E_nr = E_nuc_rep(n_atoms,Z,xyz_list);
+
+    cout << "Nuclear Repulsion Energy is " << E_nr << " eV" << endl;
+    cout << "Electron Energy is " << E_el << " eV" << endl;
+    cout << "This molecule in file " << file_name << " has energy " << E_nr + E_el << " eV" << endl;
 }
